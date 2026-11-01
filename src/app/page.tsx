@@ -1,69 +1,188 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+import AppTopBar from "@/components/AppTopBar";
+import CategoryExplorer, { ALL_FILTER } from "@/components/CategoryExplorer";
+import CourseHeader from "@/components/CourseHeader";
+import LessonWorkspace from "@/components/LessonWorkspace";
+import Onboarding from "@/components/Onboarding";
+import PracticeFeedback from "@/components/PracticeFeedback";
+import ProfileDrawer from "@/components/ProfileDrawer";
+import QuickFixPlayer from "@/components/QuickFixPlayer";
+import { CATEGORIES } from "@/data/categories";
+import { COURSES } from "@/data/courses";
+import { QUICK_FIXES } from "@/data/quickfixes";
+import { TRAINERS } from "@/data/trainers";
+import { useTrainingHistory } from "@/hooks/useTrainingHistory";
+import { useTrainingState } from "@/hooks/useTrainingState";
+import { getContinueTarget } from "@/lib/progress";
+import type { FeedbackId } from "@/types";
+
+const TOTAL_LESSONS = COURSES.reduce((n, c) => n + c.lessons.length, 0);
 
 export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+  const {
+    state,
+    isHydrated,
+    saveSetup,
+    completeLesson,
+    renameDog,
+    resetProgress,
+  } = useTrainingState();
+  const { entries, addEntry, clearHistory } = useTrainingHistory();
+  const [categoryId, setCategoryId] = useState(CATEGORIES[0].id);
+  const [filter, setFilter] = useState(ALL_FILTER);
+  const [query, setQuery] = useState("");
+  const [courseId, setCourseId] = useState<string | null>(null);
+  const [quickFixId, setQuickFixId] = useState<string | null>(null);
+  const [viewedLessonId, setViewedLessonId] = useState<string | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+
+  if (!isHydrated) {
+    return <div className="min-h-screen" aria-busy="true" />;
+  }
+
+  if (!state.isSetupComplete) {
+    return <Onboarding onComplete={saveSetup} />;
+  }
+
+  const quickFix = QUICK_FIXES.find((f) => f.id === quickFixId);
+  const course = COURSES.find((c) => c.id === courseId);
+
+  const resetAll = () => {
+    resetProgress();
+    clearHistory();
+    setProfileOpen(false);
+    setFeedbackOpen(false);
+    setCourseId(null);
+    setQuickFixId(null);
+    setViewedLessonId(null);
+    setFilter(ALL_FILTER);
+    setQuery("");
+  };
+
+  const totalMinutes = Math.round(
+    entries.reduce((sum, e) => sum + e.durationSeconds, 0) / 60,
+  );
+
+  let screen: React.ReactNode;
+  let feedbackModal: React.ReactNode = null;
+
+  if (quickFix) {
+    screen = (
+      <QuickFixPlayer fix={quickFix} onBack={() => setQuickFixId(null)} />
+    );
+  } else if (!course) {
+    screen = (
+      <CategoryExplorer
+        dogName={state.dogName}
+        completedLessonIds={state.completedLessonIds}
+        continueTarget={getContinueTarget(
+          state.completedLessonIds,
+          state.lastCourseId,
+        )}
+        selectedCategoryId={categoryId}
+        filter={filter}
+        query={query}
+        onSelectCategory={setCategoryId}
+        onFilterChange={setFilter}
+        onQueryChange={setQuery}
+        onOpenQuickFix={setQuickFixId}
+        onOpenCourse={(id, lessonId) => {
+          setViewedLessonId(lessonId ?? null);
+          setCourseId(id);
+        }}
+      />
+    );
+  } else {
+    const category = CATEGORIES.find((c) => c.id === course.categoryId)!;
+    const trainer = TRAINERS.find((t) => t.id === course.trainerId);
+    const firstOpen = course.lessons.find(
+      (l) => !state.completedLessonIds.includes(l.id),
+    );
+    const lesson =
+      course.lessons.find((l) => l.id === viewedLessonId) ??
+      firstOpen ??
+      course.lessons[0];
+    const index = course.lessons.findIndex((l) => l.id === lesson.id);
+    const nextLesson = course.lessons[index + 1];
+
+    const backToCategories = () => {
+      setCategoryId(course.categoryId);
+      setCourseId(null);
+      setViewedLessonId(null);
+    };
+
+    const handleFeedback = (feedback: FeedbackId, note: string) => {
+      addEntry({
+        lessonId: lesson.id,
+        lessonTitle: lesson.title,
+        courseTitle: course.title,
+        durationSeconds: lesson.videoSeconds + lesson.practiceSeconds,
+        feedback,
+        note,
+      });
+      completeLesson(lesson.id);
+      setFeedbackOpen(false);
+      if (nextLesson) setViewedLessonId(nextLesson.id);
+      else backToCategories();
+    };
+
+    screen = (
+      <>
+        <CourseHeader
+          category={category}
+          course={course}
+          trainer={trainer}
+          onBack={backToCategories}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+        <LessonWorkspace
+          lessons={course.lessons}
+          lesson={lesson}
+          categoryId={course.categoryId}
+          completedLessonIds={state.completedLessonIds}
+          ctaLabel={
+            nextLesson ? "סיימנו לתרגל – לשלב הבא" : "סיימנו לתרגל – סיום הקורס"
+          }
+          onSelectLesson={setViewedLessonId}
+          onFinish={() => setFeedbackOpen(true)}
+        />
+      </>
+    );
+
+    if (feedbackOpen) {
+      feedbackModal = (
+        <PracticeFeedback
+          lessonTitle={lesson.title}
+          onSubmit={handleFeedback}
+          onClose={() => setFeedbackOpen(false)}
+        />
+      );
+    }
+  }
+
+  return (
+    <>
+      <div className="mx-auto min-h-screen w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+        <AppTopBar
+          dogName={state.dogName}
+          onOpenProfile={() => setProfileOpen(true)}
+        />
+        {screen}
+      </div>
+      {feedbackModal}
+      <ProfileDrawer
+        open={profileOpen}
+        dogName={state.dogName}
+        completedCount={state.completedLessonIds.length}
+        totalLessons={TOTAL_LESSONS}
+        totalMinutes={totalMinutes}
+        recent={entries.slice(0, 5)}
+        onRename={renameDog}
+        onReset={resetAll}
+        onClose={() => setProfileOpen(false)}
+      />
+    </>
   );
 }
